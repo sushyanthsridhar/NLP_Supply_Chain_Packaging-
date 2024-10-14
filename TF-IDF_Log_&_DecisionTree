@@ -1,0 +1,76 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import classification_report, accuracy_score
+from sklearn.preprocessing import LabelEncoder
+import re
+from google.colab import files
+
+uploaded = files.upload()
+data = pd.read_csv(list(uploaded.keys())[0])
+
+def clean_text(text):
+    text = re.sub(r'[^a-zA-Z\s]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text.lower()
+
+data['Cleaned_Review'] = data['Review'].apply(clean_text)
+
+def map_score_to_sentiment(score):
+    if score <= 2:
+        return 'Bad'
+    elif score == 3:
+        return 'Neutral'
+    else:
+        return 'Good'
+
+data['Sentiment'] = data['Score'].apply(map_score_to_sentiment)
+
+le = LabelEncoder()
+data['Sentiment_Label'] = le.fit_transform(data['Sentiment'])
+
+X = data['Cleaned_Review']
+y = data['Sentiment_Label']
+X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2, random_state=42)
+
+vectorizer = TfidfVectorizer(max_features=5000)
+X_train_tfidf = vectorizer.fit_transform(X_train)
+X_valid_tfidf = vectorizer.transform(X_valid)
+
+logistic_model = LogisticRegression(max_iter=1000)
+logistic_model.fit(X_train_tfidf, y_train)
+tree_model = DecisionTreeClassifier(random_state=42)
+tree_model.fit(X_train_tfidf, y_train)
+
+print("Logistic Regression - Validation Report:")
+y_valid_pred_logistic = logistic_model.predict(X_valid_tfidf)
+print(classification_report(y_valid, y_valid_pred_logistic, target_names=le.classes_))
+print(f"Logistic Regression - Validation Accuracy: {accuracy_score(y_valid, y_valid_pred_logistic):.2f}")
+
+print("Decision Tree - Validation Report:")
+y_valid_pred_tree = tree_model.predict(X_valid_tfidf)
+print(classification_report(y_valid, y_valid_pred_tree, target_names=le.classes_))
+print(f"Decision Tree - Validation Accuracy: {accuracy_score(y_valid, y_valid_pred_tree):.2f}")
+
+print("Cross-Validation Scores:")
+log_cv_scores = cross_val_score(logistic_model, X_train_tfidf, y_train, cv=5)
+tree_cv_scores = cross_val_score(tree_model, X_train_tfidf, y_train, cv=5)
+
+print(f"Logistic Regression CV Accuracy: {np.mean(log_cv_scores):.2f} ± {np.std(log_cv_scores):.2f}")
+print(f"Decision Tree CV Accuracy: {np.mean(tree_cv_scores):.2f} ± {np.std(tree_cv_scores):.2f}")
+
+new_test_data = files.upload()
+test_data = pd.read_csv(list(new_test_data.keys())[0])
+test_data['Cleaned_Review'] = test_data['Review'].apply(clean_text)
+X_test = vectorizer.transform(test_data['Cleaned_Review'])
+
+test_data['Logistic_Prediction'] = logistic_model.predict(X_test)
+test_data['DecisionTree_Prediction'] = tree_model.predict(X_test)
+
+test_data['Logistic_Prediction'] = le.inverse_transform(test_data['Logistic_Prediction'])
+test_data['DecisionTree_Prediction'] = le.inverse_transform(test_data['DecisionTree_Prediction'])
+
+print(test_data[['Review', 'Logistic_Prediction', 'DecisionTree_Prediction']])
